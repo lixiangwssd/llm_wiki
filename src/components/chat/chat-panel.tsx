@@ -51,12 +51,29 @@ export function ChatPanel() {
           readFile(`${project.path}/purpose.md`).catch(() => ""),
         ])
 
-        // Search wiki for pages relevant to the question
-        const searchResults = await searchWiki(project.path, text)
+        // Search wiki using current question + recent conversation context
+        const recentContext = useChatStore.getState().messages
+          .filter((m) => m.role === "user")
+          .slice(-3)
+          .map((m) => m.content)
+          .join(" ")
+        const searchQuery = `${text} ${recentContext}`.slice(0, 500)
+        const searchResults = await searchWiki(project.path, searchQuery)
+
+        // Also search with just the current question for precision
+        const directResults = await searchWiki(project.path, text)
+
+        // Merge and deduplicate results
+        const seenPaths = new Set<string>()
+        const mergedResults = [...directResults, ...searchResults].filter((r) => {
+          if (seenPaths.has(r.path)) return false
+          seenPaths.add(r.path)
+          return true
+        })
 
         // Read the full content of top relevant pages (max 10 to fit context)
         const relevantPages: { title: string; path: string; content: string }[] = []
-        for (const result of searchResults.slice(0, 10)) {
+        for (const result of mergedResults.slice(0, 10)) {
           try {
             const content = await readFile(result.path)
             const relativePath = result.path.replace(project.path + "/", "")
@@ -128,7 +145,9 @@ export function ChatPanel() {
         })
       }
 
+      // Only include user and assistant messages in conversation history (not internal system messages)
       const allMessages = useChatStore.getState().messages
+        .filter((m) => m.role === "user" || m.role === "assistant")
       const llmMessages = [...systemMessages, ...chatMessagesToLLM(allMessages)]
 
       const controller = new AbortController()
