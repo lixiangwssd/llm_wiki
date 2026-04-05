@@ -3,6 +3,7 @@ import { streamChat } from "@/lib/llm-client"
 import type { LlmConfig } from "@/stores/wiki-store"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useChatStore } from "@/stores/chat-store"
+import { useActivityStore } from "@/stores/activity-store"
 import { useReviewStore, type ReviewItem } from "@/stores/review-store"
 
 const FILE_BLOCK_REGEX = /---FILE:\s*([^\n-]+?)\s*---\n([\s\S]*?)---END FILE---/g
@@ -17,11 +18,15 @@ export async function autoIngest(
   llmConfig: LlmConfig,
   signal?: AbortSignal,
 ): Promise<string[]> {
-  const store = getStore()
-  store.setMode("ingest")
-  store.setIngestSource(sourcePath)
-  store.clearMessages()
-  store.setStreaming(false)
+  const activity = useActivityStore.getState()
+  const fileName = sourcePath.split("/").pop() ?? sourcePath
+  const activityId = activity.addItem({
+    type: "ingest",
+    title: fileName,
+    status: "running",
+    detail: "Reading source...",
+    filesWritten: [],
+  })
 
   const [sourceContent, schema, purpose, index] = await Promise.all([
     tryReadFile(sourcePath),
@@ -30,56 +35,10 @@ export async function autoIngest(
     tryReadFile(`${projectPath}/wiki/index.md`),
   ])
 
-  const fileName = sourcePath.split("/").pop() ?? sourcePath
+  activity.updateItem(activityId, { detail: "Generating wiki pages..." })
 
-  const systemPrompt = [
-    "You are a wiki maintainer. You will read a source document and directly produce wiki files.",
-    "",
-    "## Output Format",
-    "",
-    "Output wiki files in this format:",
-    "",
-    "---FILE: wiki/sources/filename.md---",
-    "(complete file content with YAML frontmatter)",
-    "---END FILE---",
-    "",
-    "For each source, produce:",
-    "1. A source summary page in wiki/sources/",
-    "2. Entity pages in wiki/entities/ for key entities (people, organizations, products)",
-    "3. Concept pages in wiki/concepts/ for key concepts (theories, methods, techniques)",
-    "4. An updated wiki/index.md with new entries added to existing categories",
-    "5. A log entry for wiki/log.md (just the new entry to append)",
-    "",
-    "Use YAML frontmatter on every page. Use [[wikilink]] syntax for cross-references.",
-    "Use kebab-case filenames.",
-    "",
-    "## Review Items",
-    "",
-    "After the FILE blocks, if you find anything that needs human judgment, output REVIEW blocks:",
-    "",
-    "---REVIEW: type | Title---",
-    "Description of what needs attention.",
-    "OPTIONS: Option A | Option B | Option C",
-    "PAGES: wiki/page1.md, wiki/page2.md",
-    "---END REVIEW---",
-    "",
-    "Review types: contradiction, duplicate, missing-page, suggestion",
-    "Only create reviews for things that genuinely need human input. Examples:",
-    "- Contradiction: new source conflicts with existing wiki content",
-    "- Duplicate: an entity/concept might already exist under a different name",
-    "- Missing page: an important concept is referenced but has no dedicated page yet",
-    "- Suggestion: ideas for further research or sources to look for",
-    "",
-    purpose ? `## Wiki Purpose\n${purpose}` : "",
-    schema ? `## Wiki Schema\n${schema}` : "",
-    index ? `## Current Wiki Index (add to this, don't remove existing entries)\n${index}` : "",
-  ].filter(Boolean).join("\n")
-
+  const systemPrompt = buildAutoIngestPrompt(schema, purpose, index)
   const userMessage = `Ingest this source into the wiki:\n\n**File:** ${fileName}\n\n---\n\n${sourceContent.length > 50000 ? sourceContent.slice(0, 50000) + "\n\n[...truncated...]" : sourceContent}`
-
-  store.addMessage("system", `Auto-ingesting: ${fileName}`)
-  store.addMessage("user", userMessage)
-  store.setStreaming(true)
 
   let accumulated = ""
 
@@ -92,42 +51,49 @@ export async function autoIngest(
     {
       onToken: (token) => {
         accumulated += token
-        getStore().appendStreamToken(token)
       },
-      onDone: () => {
-        getStore().finalizeStream(accumulated)
-      },
+      onDone: () => {},
       onError: (err) => {
-        getStore().finalizeStream(`Error during auto-ingest: ${err.message}`)
+        activity.updateItem(activityId, { status: "error", detail: err.message })
       },
     },
     signal,
   )
 
+  // If errored, stop here
+  if (useActivityStore.getState().items.find((i) => i.id === activityId)?.status === "error") {
+    return []
+  }
+
   // Parse and write files
+  activity.updateItem(activityId, { detail: "Writing wiki pages..." })
   const writtenPaths = await writeFileBlocks(projectPath, accumulated)
 
+  // Refresh file tree
   if (writtenPaths.length > 0) {
-    const fileList = writtenPaths.map((p) => `- ${p}`).join("\n")
-    getStore().addMessage("system", `✓ Wiki updated (${writtenPaths.length} files):\n${fileList}`)
-
-    // Refresh file tree
     try {
       const tree = await listDirectory(projectPath)
       useWikiStore.getState().setFileTree(tree)
     } catch {
       // ignore
     }
-  } else {
-    getStore().addMessage("system", "No wiki files were generated.")
   }
 
   // Parse and add review items
   const reviewItems = parseReviewBlocks(accumulated, sourcePath)
   if (reviewItems.length > 0) {
     useReviewStore.getState().addItems(reviewItems)
-    getStore().addMessage("system", `📋 ${reviewItems.length} item(s) added to Review for your attention.`)
   }
+
+  const detail = writtenPaths.length > 0
+    ? `${writtenPaths.length} files written${reviewItems.length > 0 ? `, ${reviewItems.length} review item(s)` : ""}`
+    : "No files generated"
+
+  activity.updateItem(activityId, {
+    status: writtenPaths.length > 0 ? "done" : "error",
+    detail,
+    filesWritten: writtenPaths,
+  })
 
   return writtenPaths
 }
@@ -214,6 +180,47 @@ function parseReviewBlocks(
   }
 
   return items
+}
+
+function buildAutoIngestPrompt(schema: string, purpose: string, index: string): string {
+  return [
+    "You are a wiki maintainer. You will read a source document and directly produce wiki files.",
+    "",
+    "## Output Format",
+    "",
+    "Output wiki files in this format:",
+    "",
+    "---FILE: wiki/sources/filename.md---",
+    "(complete file content with YAML frontmatter)",
+    "---END FILE---",
+    "",
+    "For each source, produce:",
+    "1. A source summary page in wiki/sources/",
+    "2. Entity pages in wiki/entities/ for key entities (people, organizations, products)",
+    "3. Concept pages in wiki/concepts/ for key concepts (theories, methods, techniques)",
+    "4. An updated wiki/index.md with new entries added to existing categories",
+    "5. A log entry for wiki/log.md (just the new entry to append)",
+    "",
+    "Use YAML frontmatter on every page. Use [[wikilink]] syntax for cross-references.",
+    "Use kebab-case filenames.",
+    "",
+    "## Review Items",
+    "",
+    "After the FILE blocks, if you find anything that needs human judgment, output REVIEW blocks:",
+    "",
+    "---REVIEW: type | Title---",
+    "Description of what needs attention.",
+    "OPTIONS: Option A | Option B | Option C",
+    "PAGES: wiki/page1.md, wiki/page2.md",
+    "---END REVIEW---",
+    "",
+    "Review types: contradiction, duplicate, missing-page, suggestion",
+    "Only create reviews for things that genuinely need human input.",
+    "",
+    purpose ? `## Wiki Purpose\n${purpose}` : "",
+    schema ? `## Wiki Schema\n${schema}` : "",
+    index ? `## Current Wiki Index (add to this, don't remove existing entries)\n${index}` : "",
+  ].filter(Boolean).join("\n")
 }
 
 function getStore() {

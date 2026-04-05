@@ -91,14 +91,14 @@ export function SourcesView() {
     setImporting(false)
     await loadSources()
 
-    // Auto-ingest each imported file
+    // Auto-ingest each imported file (runs in background, progress shown in activity panel)
     if (llmConfig.apiKey || llmConfig.provider === "ollama") {
-      setChatExpanded(true)
-      setActiveView("wiki")
       for (const sourcePath of paths) {
         const fileName = sourcePath.split("/").pop() || sourcePath.split("\\").pop() || "unknown"
         const destPath = `${project.path}/raw/sources/${fileName}`
-        await autoIngest(project.path, destPath, llmConfig)
+        autoIngest(project.path, destPath, llmConfig).catch((err) =>
+          console.error(`Failed to auto-ingest ${fileName}:`, err)
+        )
       }
     }
   }

@@ -4,6 +4,7 @@ import { listDirectory } from "@/commands/fs"
 import { IconSidebar } from "./icon-sidebar"
 import { FileTree } from "./file-tree"
 import { ContentArea } from "./content-area"
+import { ActivityPanel } from "./activity-panel"
 
 interface AppLayoutProps {
   onSwitchProject: () => void
@@ -62,10 +63,13 @@ export function AppLayout({ onSwitchProject }: AppLayoutProps) {
       <IconSidebar onSwitchProject={onSwitchProject} />
       <div ref={containerRef} className="flex min-w-0 flex-1 overflow-hidden">
         <div
-          className="shrink-0 overflow-hidden border-r"
+          className="flex shrink-0 flex-col overflow-hidden border-r"
           style={{ width: sidebarWidth }}
         >
-          <FileTree />
+          <div className="flex-1 overflow-hidden">
+            <FileTree />
+          </div>
+          <ActivityPanel />
         </div>
         <div
           className="w-1.5 shrink-0 cursor-col-resize bg-border/40 transition-colors hover:bg-primary/30 active:bg-primary/40"
