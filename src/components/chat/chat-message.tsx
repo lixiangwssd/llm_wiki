@@ -275,33 +275,91 @@ export function StreamingMessage({ content }: StreamingMessageProps) {
 }
 
 function MarkdownContent({ content }: { content: string }) {
-  // Strip all hidden comments before rendering
+  // Strip hidden comments
   const cleaned = content.replace(/<!--.*?-->/gs, "").trimEnd()
-  const processed = useMemo(() => processContent(cleaned), [cleaned])
+
+  // Separate thinking blocks from main content
+  const { thinking, answer } = useMemo(() => separateThinking(cleaned), [cleaned])
+  const processed = useMemo(() => processContent(answer), [answer])
 
   return (
-    <div className="chat-markdown prose prose-sm max-w-none dark:prose-invert prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-pre:my-2 prose-code:text-xs prose-code:before:content-none prose-code:after:content-none">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{
-          a: ({ href, children }) => {
-            if (href?.startsWith("wikilink:")) {
-              const pageName = href.slice("wikilink:".length)
-              return <WikiLink pageName={pageName}>{children}</WikiLink>
-            }
-            return (
-              <span className="text-primary underline cursor-default" title={href}>
-                {children}
-              </span>
-            )
-          },
-          pre: ({ children, ...props }) => (
-            <pre className="rounded bg-background/50 p-2 text-xs overflow-x-auto" {...props}>{children}</pre>
-          ),
-        }}
+    <div>
+      {thinking && <ThinkingBlock content={thinking} />}
+      <div className="chat-markdown prose prose-sm max-w-none dark:prose-invert prose-p:my-1 prose-headings:my-2 prose-ul:my-1 prose-ol:my-1 prose-li:my-0 prose-pre:my-2 prose-code:text-xs prose-code:before:content-none prose-code:after:content-none">
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            a: ({ href, children }) => {
+              if (href?.startsWith("wikilink:")) {
+                const pageName = href.slice("wikilink:".length)
+                return <WikiLink pageName={pageName}>{children}</WikiLink>
+              }
+              return (
+                <span className="text-primary underline cursor-default" title={href}>
+                  {children}
+                </span>
+              )
+            },
+            pre: ({ children, ...props }) => (
+              <pre className="rounded bg-background/50 p-2 text-xs overflow-x-auto" {...props}>{children}</pre>
+            ),
+          }}
+        >
+          {processed}
+        </ReactMarkdown>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Separate <think>...</think> blocks from the main answer.
+ * Handles multiple think blocks and partial (unclosed) thinking during streaming.
+ */
+function separateThinking(text: string): { thinking: string | null; answer: string } {
+  // Match complete <think>...</think> blocks
+  const thinkRegex = /<think>([\s\S]*?)<\/think>/gi
+  const thinkParts: string[] = []
+  let answer = text
+
+  let match: RegExpExecArray | null
+  while ((match = thinkRegex.exec(text)) !== null) {
+    thinkParts.push(match[1].trim())
+  }
+  answer = answer.replace(/<think>[\s\S]*?<\/think>/gi, "").trim()
+
+  // Handle unclosed <think> tag (streaming in progress)
+  const unclosedMatch = answer.match(/<think>([\s\S]*)$/i)
+  if (unclosedMatch) {
+    thinkParts.push(unclosedMatch[1].trim())
+    answer = answer.replace(/<think>[\s\S]*$/i, "").trim()
+  }
+
+  const thinking = thinkParts.length > 0 ? thinkParts.join("\n\n") : null
+  return { thinking, answer }
+}
+
+function ThinkingBlock({ content }: { content: string }) {
+  const [expanded, setExpanded] = useState(false)
+
+  return (
+    <div className="mb-2 rounded-md border border-dashed border-amber-500/30 bg-amber-50/50 dark:bg-amber-950/20">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="flex w-full items-center gap-1.5 px-2.5 py-1.5 text-xs text-amber-700 dark:text-amber-400 hover:bg-amber-100/50 dark:hover:bg-amber-900/20 transition-colors"
       >
-        {processed}
-      </ReactMarkdown>
+        <span className="text-sm">💭</span>
+        <span className="font-medium">Thinking</span>
+        <span className="text-amber-600/60 dark:text-amber-500/60">
+          {expanded ? "▼" : "▶"} {content.length > 100 ? `${Math.ceil(content.length / 100) * 100}+ chars` : ""}
+        </span>
+      </button>
+      {expanded && (
+        <div className="border-t border-amber-500/20 px-2.5 py-2 text-xs text-amber-800/80 dark:text-amber-300/70 whitespace-pre-wrap max-h-64 overflow-y-auto">
+          {content}
+        </div>
+      )}
     </div>
   )
 }
