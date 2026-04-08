@@ -371,6 +371,20 @@ function MarkdownContent({ content }: { content: string }) {
                 </span>
               )
             },
+            table: ({ children, ...props }) => (
+              <div className="my-2 overflow-x-auto">
+                <table className="w-full border-collapse text-xs" {...props}>{children}</table>
+              </div>
+            ),
+            thead: ({ children, ...props }) => (
+              <thead className="bg-muted/50" {...props}>{children}</thead>
+            ),
+            th: ({ children, ...props }) => (
+              <th className="border border-border px-2 py-1 text-left font-semibold" {...props}>{children}</th>
+            ),
+            td: ({ children, ...props }) => (
+              <td className="border border-border px-2 py-1" {...props}>{children}</td>
+            ),
             pre: ({ children, ...props }) => (
               <pre className="rounded bg-background/50 p-2 text-xs overflow-x-auto" {...props}>{children}</pre>
             ),
