@@ -218,13 +218,13 @@ export function GraphView() {
   const dataVersion = useWikiStore((s) => s.dataVersion)
   const setSelectedFile = useWikiStore((s) => s.setSelectedFile)
   const setFileContent = useWikiStore((s) => s.setFileContent)
-  const setActiveView = useWikiStore((s) => s.setActiveView)
 
   const [nodes, setNodes] = useState<GraphNode[]>([])
   const [edges, setEdges] = useState<GraphEdge[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [hoveredType, setHoveredType] = useState<string | null>(null)
+  const [selectedNode, setSelectedNode] = useState<{ title: string; path: string; type: string; content: string } | null>(null)
   const lastLoadedVersion = useRef(-1)
 
   const loadGraph = useCallback(async () => {
@@ -256,14 +256,13 @@ export function GraphView() {
       if (!node) return
       try {
         const content = await readFile(node.path)
-        setSelectedFile(node.path)
-        setFileContent(content)
-        // Stay on graph view — preview opens in right panel
+        // Show inline preview instead of triggering right panel (avoids layout shift)
+        setSelectedNode({ title: node.label, path: node.path, type: node.type, content })
       } catch (err) {
         console.error("Failed to open wiki page:", err)
       }
     },
-    [nodes, setSelectedFile, setFileContent],
+    [nodes],
   )
 
   // Count nodes by type for legend
@@ -330,9 +329,8 @@ export function GraphView() {
         </Button>
       </div>
 
-      {/* Graph canvas — use absolute positioning to decouple from parent resize */}
+      {/* Graph canvas */}
       <div className="relative flex-1 overflow-hidden bg-slate-50 dark:bg-slate-950">
-      <div className="absolute inset-0">
         <SigmaContainer
           style={{ width: "100%", height: "100%", background: "transparent" }}
           settings={{
@@ -382,7 +380,6 @@ export function GraphView() {
           <ZoomControls />
         </SigmaContainer>
 
-        </div>
         {/* Legend */}
         <div className="absolute bottom-3 left-3 rounded-lg border bg-background/90 backdrop-blur-sm px-3 py-2 text-xs shadow-sm">
           <div className="mb-1.5 font-semibold text-foreground">Node Types</div>
@@ -412,6 +409,45 @@ export function GraphView() {
           </div>
         </div>
       </div>
+
+      {/* Inline node preview (avoids triggering right panel resize) */}
+      {selectedNode && (
+        <div className="shrink-0 border-t bg-background max-h-[40%] overflow-hidden flex flex-col">
+          <div className="flex items-center justify-between px-3 py-1.5 border-b bg-muted/30">
+            <div className="flex items-center gap-2 min-w-0">
+              <span
+                className="inline-block h-2.5 w-2.5 rounded-full shrink-0"
+                style={{ backgroundColor: NODE_TYPE_COLORS[selectedNode.type] ?? NODE_TYPE_COLORS.other }}
+              />
+              <span className="text-sm font-medium truncate">{selectedNode.title}</span>
+              <span className="text-[10px] text-muted-foreground shrink-0">{selectedNode.type}</span>
+            </div>
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedFile(selectedNode.path)
+                  setFileContent(selectedNode.content)
+                }}
+                className="rounded px-2 py-0.5 text-[11px] text-primary hover:bg-accent transition-colors"
+              >
+                Open in Preview
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedNode(null)}
+                className="rounded p-0.5 text-muted-foreground hover:bg-accent"
+              >
+                <span className="text-xs">✕</span>
+              </button>
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto px-3 py-2 text-xs text-muted-foreground whitespace-pre-wrap font-mono leading-relaxed">
+            {selectedNode.content.slice(0, 3000)}
+            {selectedNode.content.length > 3000 && "\n\n[...click 'Open in Preview' for full content...]"}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
