@@ -110,6 +110,7 @@
       "network": "Network",
       "output": "Output",
       "interface": "Interface",
+      "prompts": "Prompts",
       "maintenance": "Maintenance",
       "changelog": "Changelog",
       "about": "About"

@@ -5,6 +5,7 @@ import type { FileNode } from "@/types/wiki"
 import { useActivityStore } from "@/stores/activity-store"
 import { getFileName, getRelativePath, normalizePath } from "@/lib/path-utils"
 import { buildLanguageDirective } from "@/lib/output-language"
+import { getLintPrompt } from "./prompts"
 
 export interface LintResult {
   type: "orphan" | "broken-link" | "no-outlinks" | "semantic"
@@ -212,34 +213,10 @@ export async function runSemanticLint(
   // so non-English wikis get a matching language directive.
   const summarySample = summaries.join("\n").slice(0, 2000)
 
-  const prompt = [
-    "You are a wiki quality analyst. Review the following wiki page summaries and identify issues.",
-    "",
-    buildLanguageDirective(summarySample),
-    "",
-    "For each issue, output exactly this format:",
-    "",
-    "---LINT: type | severity | Short title---",
-    "Description of the issue.",
-    "PAGES: page1.md, page2.md",
-    "---END LINT---",
-    "",
-    "Types:",
-    "- contradiction: two or more pages make conflicting claims",
-    "- stale: information that appears outdated or superseded",
-    "- missing-page: an important concept is heavily referenced but has no dedicated page",
-    "- suggestion: a question or source worth adding to the wiki",
-    "",
-    "Severities:",
-    "- warning: should be addressed",
-    "- info: nice to have",
-    "",
-    "Only report genuine issues. Do not invent problems. Output ONLY the ---LINT--- blocks, no other text.",
-    "",
-    "## Wiki Pages",
-    "",
-    summaries.join("\n\n"),
-  ].join("\n")
+  const prompt = getLintPrompt({
+    languageDirective: buildLanguageDirective(summarySample),
+    summaries: summaries.join("\n\n"),
+  })
 
   let raw = ""
   let hadError = false

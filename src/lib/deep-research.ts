@@ -6,6 +6,7 @@ import { useWikiStore, type LlmConfig, type SearchApiConfig } from "@/stores/wik
 import { useResearchStore } from "@/stores/research-store"
 import { normalizePath } from "@/lib/path-utils"
 import { buildLanguageDirective } from "@/lib/output-language"
+import { getResearchPrompt } from "./prompts"
 
 /**
  * Queue a deep research task. Automatically starts processing if under concurrency limit.
@@ -111,26 +112,10 @@ async function executeResearch(
       // no index yet
     }
 
-    const systemPrompt = [
-      "You are a research assistant. Synthesize the web search results into a comprehensive wiki page.",
-      "",
-      buildLanguageDirective(topic),
-      "",
-      "## Cross-referencing (IMPORTANT)",
-      "- The wiki already has existing pages listed in the Wiki Index below.",
-      "- When your synthesis mentions an entity or concept that exists in the wiki, ALWAYS use [[wikilink]] syntax to link to it.",
-      "- For example, if the wiki has an entity 'anthropic', write [[anthropic]] when mentioning it.",
-      "- This is critical for connecting new research to existing knowledge in the graph.",
-      "",
-      "## Writing Rules",
-      "- Organize into clear sections with headings",
-      "- Cite web sources using [N] notation",
-      "- Note contradictions or gaps",
-      "- Suggest additional sources worth finding",
-      "- Neutral, encyclopedic tone",
-      "",
-      wikiIndex ? `## Existing Wiki Index (link to these pages with [[wikilink]])\n${wikiIndex}` : "",
-    ].filter(Boolean).join("\n")
+    const systemPrompt = getResearchPrompt({
+      languageDirective: buildLanguageDirective(topic),
+      wikiIndex,
+    })
 
     let accumulated = ""
 

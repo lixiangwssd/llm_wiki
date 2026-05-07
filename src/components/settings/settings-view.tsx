@@ -10,6 +10,7 @@ import {
   Network,
   History,
   Wrench,
+  MessageSquare,
 } from "lucide-react"
 import { useTranslation } from "react-i18next"
 import { invoke } from "@tauri-apps/api/core"
@@ -30,6 +31,7 @@ import { NetworkSection } from "./sections/network-section"
 import { ChangelogSection } from "./sections/changelog-section"
 import { MaintenanceSection } from "./sections/maintenance-section"
 import { AboutSection } from "./sections/about-section"
+import { PromptSettings } from "./prompt-settings"
 
 type CategoryId =
   | "llm"
@@ -39,6 +41,7 @@ type CategoryId =
   | "network"
   | "output"
   | "interface"
+  | "prompts"
   | "maintenance"
   | "changelog"
   | "about"
@@ -60,6 +63,7 @@ const CATEGORIES: Category[] = [
   { id: "network", labelKey: "settings.categories.network", icon: Network },
   { id: "output", labelKey: "settings.categories.output", icon: Languages },
   { id: "interface", labelKey: "settings.categories.interface", icon: Palette },
+  { id: "prompts", labelKey: "settings.categories.prompts", icon: MessageSquare },
   { id: "maintenance", labelKey: "settings.categories.maintenance", icon: Wrench },
   { id: "changelog", labelKey: "settings.categories.changelog", icon: History },
   { id: "about", labelKey: "settings.categories.about", icon: Info },
@@ -288,6 +292,8 @@ export function SettingsView() {
         return <OutputSection draft={draft} setDraft={setDraft} />
       case "interface":
         return <InterfaceSection draft={draft} setDraft={setDraft} />
+      case "prompts":
+        return <PromptSettings />
       case "maintenance":
         return <MaintenanceSection />
       case "changelog":

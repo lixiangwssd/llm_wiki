@@ -3,6 +3,7 @@ import { open } from "@tauri-apps/plugin-dialog"
 import i18n from "@/i18n"
 import { useWikiStore } from "@/stores/wiki-store"
 import { useReviewStore } from "@/stores/review-store"
+import { usePromptStore } from "@/stores/prompt-store"
 import { useChatStore } from "@/stores/chat-store"
 import { listDirectory, openProject } from "@/commands/fs"
 import { getLastProject, getRecentProjects, saveLastProject, loadLlmConfig, loadLanguage, loadSearchApiConfig, loadEmbeddingConfig, loadMultimodalConfig, loadOutputLanguage, loadProviderConfigs, loadActivePresetId, loadProxyConfig } from "@/lib/project-store"
@@ -27,6 +28,8 @@ function App() {
   useEffect(() => {
     setupAutoSave()
     startClipWatcher()
+    // Load custom prompts on app startup
+    usePromptStore.getState().loadPrompts()
   }, [])
 
   // Dev-only helper for visually testing the update-banner UX.

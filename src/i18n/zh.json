@@ -110,6 +110,7 @@
       "network": "网络",
       "output": "输出偏好",
       "interface": "界面",
+      "prompts": "提示词",
       "maintenance": "维护",
       "changelog": "更新日志",
       "about": "关于"

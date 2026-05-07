@@ -12,6 +12,7 @@ import { searchWiki } from "@/lib/search"
 import { buildRetrievalGraph, getRelatedNodes } from "@/lib/graph-relevance"
 import { normalizePath, getFileName, getRelativePath } from "@/lib/path-utils"
 import { getOutputLanguage, buildLanguageReminder } from "@/lib/output-language"
+import { getQueryPrompt, getGreetingPrompt } from "@/lib/prompts"
 import { isGreeting } from "@/lib/greeting-detector"
 import { computeContextBudget } from "@/lib/context-budget"
 
@@ -178,13 +179,7 @@ export function ChatPanel() {
         const outLang = getOutputLanguage(text)
         systemMessages.push({
           role: "system",
-          content: [
-            `You are a wiki assistant for the project "${project.name}".`,
-            "The user sent a casual greeting — reply briefly and naturally, in one or two sentences.",
-            "Do NOT invent wiki content or pretend to have retrieved pages. Invite the user to ask a concrete question if they want information from the wiki.",
-            "",
-            `Respond in ${outLang}.`,
-          ].join("\n"),
+          content: getGreetingPrompt({ projectName: project.name, outLang }),
         })
         // Skip retrieval; queryRefs stays empty so no "Sources" chip is shown.
       } else if (project) {
@@ -310,34 +305,13 @@ export function ChatPanel() {
 
         systemMessages.push({
           role: "system",
-          content: [
-            "You are a knowledgeable wiki assistant. Answer questions based on the wiki content provided below.",
-            "",
-            "## Rules",
-            "- Answer based ONLY on the numbered wiki pages provided below.",
-            "- If the provided pages don't contain enough information, say so honestly.",
-            "- Use [[wikilink]] syntax to reference wiki pages.",
-            "- When citing information, use the page number in brackets, e.g. [1], [2].",
-            "- At the VERY END of your response, add a hidden comment listing which page numbers you used:",
-            "  <!-- cited: 1, 3, 5 -->",
-            "",
-            "Use markdown formatting for clarity.",
-            "",
-            purpose ? `## Wiki Purpose\n${purpose}` : "",
-            index ? `## Wiki Index\n${index}` : "",
-            relevantPages.length > 0 ? `## Page List\n${pageList}` : "",
-            `## Wiki Pages\n\n${pagesContext}`,
-            "",
-            "---",
-            "",
-            `## ⚠️ MANDATORY OUTPUT LANGUAGE: ${outLang}`,
-            "",
-            `You MUST write your entire response in **${outLang}**.`,
-            `The wiki content above may be in a different language, but this is IRRELEVANT to your output language.`,
-            `Ignore the language of the wiki content. Write in ${outLang} only.`,
-            `Even proper nouns should use standard ${outLang} transliteration when appropriate.`,
-            `DO NOT use any other language. This overrides all other instructions.`,
-          ].filter(Boolean).join("\n"),
+          content: getQueryPrompt({
+            purpose,
+            index,
+            pageList,
+            pagesContext,
+            outLang,
+          }),
         })
 
         // Reminder injected later, right before the user's current message
