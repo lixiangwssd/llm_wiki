@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react"
 import {
-  FileText, Users, Lightbulb, BookOpen, HelpCircle, GitMerge, BarChart3, ChevronRight, ChevronDown, Layout, Globe, Trash2, FolderOpen,
+  FileText, Users, Lightbulb, BookOpen, HelpCircle, GitMerge, BarChart3, ChevronRight, ChevronDown, Layout, Globe, Trash2,
 } from "lucide-react"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Button } from "@/components/ui/button"
@@ -14,29 +14,18 @@ interface WikiPageInfo {
   path: string
   title: string
   type: string
-  layer: string
   tags: string[]
   origin?: string
 }
 
 const TYPE_CONFIG: Record<string, { icon: typeof FileText; label: string; color: string; order: number }> = {
   overview:    { icon: Layout,      label: "Overview",     color: "text-yellow-500", order: 0 },
-  entity:      { icon: Users,       label: "实体",         color: "text-blue-500",   order: 1 },
-  concept:     { icon: Lightbulb,   label: "概念",         color: "text-purple-500", order: 2 },
-  source:      { icon: BookOpen,    label: "来源",         color: "text-orange-500", order: 3 },
-  synthesis:   { icon: GitMerge,    label: "综合",         color: "text-red-500",    order: 4 },
-  comparison:  { icon: BarChart3,   label: "对比",         color: "text-emerald-500",order: 5 },
-  query:       { icon: HelpCircle,  label: "问题",         color: "text-green-500",  order: 6 },
-}
-
-const LAYER_CONFIG: Record<string, { label: string; order: number }> = {
-  "01-业务基础": { label: "01 业务基础", order: 1 },
-  "02-指标体系": { label: "02 指标体系", order: 2 },
-  "03-方法论":   { label: "03 方法论",   order: 3 },
-  "04-数据基建": { label: "04 数据基建", order: 4 },
-  "05-业务场景": { label: "05 业务场景", order: 5 },
-  "06-经验沉淀": { label: "06 经验沉淀", order: 6 },
-  "07-组织协作": { label: "07 组织协作", order: 7 },
+  entity:      { icon: Users,       label: "Entities",     color: "text-blue-500",   order: 1 },
+  concept:     { icon: Lightbulb,   label: "Concepts",     color: "text-purple-500", order: 2 },
+  source:      { icon: BookOpen,    label: "Sources",      color: "text-orange-500", order: 3 },
+  synthesis:   { icon: GitMerge,    label: "Synthesis",    color: "text-red-500",    order: 4 },
+  comparison:  { icon: BarChart3,   label: "Comparisons",  color: "text-emerald-500",order: 5 },
+  query:       { icon: HelpCircle,  label: "Queries",      color: "text-green-500",  order: 6 },
 }
 
 const DEFAULT_CONFIG = { icon: FileText, label: "Other", color: "text-muted-foreground", order: 99 }
@@ -49,11 +38,9 @@ export function KnowledgeTree() {
   const setFileTree = useWikiStore((s) => s.setFileTree)
   const bumpDataVersion = useWikiStore((s) => s.bumpDataVersion)
   const [pages, setPages] = useState<WikiPageInfo[]>([])
-  const [expandedLayers, setExpandedLayers] = useState<Set<string>>(
-    new Set(Object.keys(LAYER_CONFIG))
-  )
-  const [expandedTypes, setExpandedTypes] = useState<Set<string>>(new Set())
+  const [expandedTypes, setExpandedTypes] = useState<Set<string>>(new Set(["overview", "entity", "concept", "source"]))
   // Two-stage delete: first click arms the row, second click executes.
+  // Only one row armed at a time (clicking another row replaces).
   const [armedPath, setArmedPath] = useState<string | null>(null)
   const [deletingPath, setDeletingPath] = useState<string | null>(null)
 
@@ -77,7 +64,6 @@ export function KnowledgeTree() {
             path: file.path,
             title: file.name.replace(".md", "").replace(/-/g, " "),
             type: "other",
-            layer: "未分类",
             tags: [],
           })
         }
@@ -97,6 +83,7 @@ export function KnowledgeTree() {
   const handleDeleteClick = useCallback(
     async (pagePath: string) => {
       if (!project) return
+      // First click: arm. Second click on the same row: execute.
       if (armedPath !== pagePath) {
         setArmedPath(pagePath)
         return
@@ -106,6 +93,7 @@ export function KnowledgeTree() {
       try {
         const pp = normalizePath(project.path)
         await cascadeDeleteWikiPagesWithRefs(pp, [pagePath])
+        // Refresh: page list, file tree, any data-version subscribers.
         await loadPages()
         try {
           const tree = await listDirectory(pp)
@@ -133,48 +121,29 @@ export function KnowledgeTree() {
     )
   }
 
-  // === Two-level grouping: layer → type ===
-  // Initialize all configured layers (even if empty) so they always show
-  const layerGroups = new Map<string, Map<string, WikiPageInfo[]>>()
-  for (const layerKey of Object.keys(LAYER_CONFIG)) {
-    layerGroups.set(layerKey, new Map())
-  }
+  // Group pages by type
+  const grouped = new Map<string, WikiPageInfo[]>()
   for (const page of pages) {
-    const layer = page.layer || "未分类"
-    if (!layerGroups.has(layer)) layerGroups.set(layer, new Map())
-    const typeMap = layerGroups.get(layer)!
-    const list = typeMap.get(page.type) ?? []
+    const list = grouped.get(page.type) ?? []
     list.push(page)
-    typeMap.set(page.type, list)
+    grouped.set(page.type, list)
   }
 
-  // Sort layers by configured order
-  const sortedLayers = [...layerGroups.entries()].sort((a, b) => {
-    const orderA = LAYER_CONFIG[a[0]]?.order ?? 99
-    const orderB = LAYER_CONFIG[b[0]]?.order ?? 99
+  // Sort groups by configured order
+  const sortedGroups = [...grouped.entries()].sort((a, b) => {
+    const orderA = TYPE_CONFIG[a[0]]?.order ?? DEFAULT_CONFIG.order
+    const orderB = TYPE_CONFIG[b[0]]?.order ?? DEFAULT_CONFIG.order
     return orderA - orderB
   })
 
-  function toggleLayer(layer: string) {
-    setExpandedLayers((prev) => {
-      const next = new Set(prev)
-      if (next.has(layer)) next.delete(layer)
-      else next.add(layer)
-      return next
-    })
-  }
-
-  function toggleType(key: string) {
+  function toggleType(type: string) {
     setExpandedTypes((prev) => {
       const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
+      if (next.has(type)) next.delete(type)
+      else next.add(type)
       return next
     })
   }
-
-  // Count total pages across all layers
-  const totalPages = pages.length
 
   return (
     <ScrollArea className="h-full">
@@ -183,110 +152,72 @@ export function KnowledgeTree() {
           {project.name}
         </div>
 
-        {totalPages === 0 && (
+        {sortedGroups.length === 0 && (
           <div className="px-2 py-4 text-center text-xs text-muted-foreground">
             No wiki pages yet. Import sources to get started.
           </div>
         )}
 
-        {sortedLayers.map(([layer, typeMap]) => {
-          const layerConf = LAYER_CONFIG[layer]
-          const layerLabel = layerConf?.label ?? layer
-          const isLayerExpanded = expandedLayers.has(layer)
-
-          // Sort types within layer
-          const sortedTypes = [...typeMap.entries()].sort((a, b) => {
-            const orderA = TYPE_CONFIG[a[0]]?.order ?? DEFAULT_CONFIG.order
-            const orderB = TYPE_CONFIG[b[0]]?.order ?? DEFAULT_CONFIG.order
-            return orderA - orderB
-          })
-
-          // Total pages in this layer
-          const layerPageCount = sortedTypes.reduce((sum, [, items]) => sum + items.length, 0)
+        {sortedGroups.map(([type, items]) => {
+          const config = TYPE_CONFIG[type] ?? DEFAULT_CONFIG
+          const Icon = config.icon
+          const isExpanded = expandedTypes.has(type)
 
           return (
-            <div key={layer} className="mb-1">
-              {/* Layer header */}
+            <div key={type} className="mb-1">
               <button
-                onClick={() => toggleLayer(layer)}
-                className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-semibold hover:bg-accent/50"
+                onClick={() => toggleType(type)}
+                className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-sm hover:bg-accent/50"
               >
-                {isLayerExpanded ? (
+                {isExpanded ? (
                   <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                 ) : (
                   <ChevronRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                 )}
-                <FolderOpen className="h-3.5 w-3.5 shrink-0 text-amber-500" />
-                <span className="flex-1 text-left">{layerLabel}</span>
-                <span className="text-xs font-normal text-muted-foreground">{layerPageCount}</span>
+                <Icon className={`h-3.5 w-3.5 shrink-0 ${config.color}`} />
+                <span className="flex-1 text-left font-medium">{config.label}</span>
+                <span className="text-xs text-muted-foreground">{items.length}</span>
               </button>
 
-              {isLayerExpanded && (
+              {isExpanded && (
                 <div className="ml-3">
-                  {sortedTypes.map(([type, items]) => {
-                    const config = TYPE_CONFIG[type] ?? DEFAULT_CONFIG
-                    const Icon = config.icon
-                    // Use composite key so same type in different layers can expand independently
-                    const typeKey = `${layer}::${type}`
-                    const isTypeExpanded = expandedTypes.has(typeKey)
-
+                  {items.map((page) => {
+                    const isSelected = selectedFile === page.path
+                    const isArmed = armedPath === page.path
+                    const isDeleting = deletingPath === page.path
                     return (
-                      <div key={type} className="mb-0.5">
+                      <div
+                        key={page.path}
+                        className={`group flex items-center gap-1 rounded-md ${
+                          isSelected ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"
+                        }`}
+                      >
                         <button
-                          onClick={() => toggleType(typeKey)}
-                          className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-sm hover:bg-accent/50"
+                          onClick={() => setSelectedFile(page.path)}
+                          className={`flex flex-1 items-center gap-1.5 px-2 py-1 text-left text-sm min-w-0 ${
+                            isSelected
+                              ? "text-accent-foreground"
+                              : "text-muted-foreground group-hover:text-accent-foreground"
+                          }`}
+                          title={page.path}
                         >
-                          {isTypeExpanded ? (
-                            <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
-                          ) : (
-                            <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
-                          )}
-                          <Icon className={`h-3 w-3 shrink-0 ${config.color}`} />
-                          <span className="flex-1 text-left text-muted-foreground">{config.label}</span>
-                          <span className="text-xs text-muted-foreground">{items.length}</span>
+                          {page.origin === "web-clip" && <Globe className="h-3 w-3 shrink-0 text-blue-400" />}
+                          <span className="truncate">{page.title}</span>
                         </button>
-
-                        {isTypeExpanded && (
-                          <div className="ml-4">
-                            {items.map((page) => {
-                              const isSelected = selectedFile === page.path
-                              const isArmed = armedPath === page.path
-                              const isDeleting = deletingPath === page.path
-                              return (
-                                <div
-                                  key={page.path}
-                                  className={`group flex items-center gap-1 rounded-md ${
-                                    isSelected ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"
-                                  }`}
-                                >
-                                  <button
-                                    onClick={() => setSelectedFile(page.path)}
-                                    className={`flex flex-1 items-center gap-1.5 px-2 py-1 text-left text-sm min-w-0 ${
-                                      isSelected
-                                        ? "text-accent-foreground"
-                                        : "text-muted-foreground group-hover:text-accent-foreground"
-                                    }`}
-                                    title={page.path}
-                                  >
-                                    {page.origin === "web-clip" && <Globe className="h-3 w-3 shrink-0 text-blue-400" />}
-                                    <span className="truncate">{page.title}</span>
-                                  </button>
-                                  <DeleteButton
-                                    armed={isArmed}
-                                    deleting={isDeleting}
-                                    className={`mr-1 transition-opacity ${
-                                      isArmed || isDeleting
-                                        ? "opacity-100"
-                                        : "opacity-0 group-hover:opacity-100"
-                                    }`}
-                                    onClick={() => void handleDeleteClick(page.path)}
-                                    name={page.title}
-                                  />
-                                </div>
-                              )
-                            })}
-                          </div>
-                        )}
+                        <DeleteButton
+                          armed={isArmed}
+                          deleting={isDeleting}
+                          // Visible on hover, when this row is armed,
+                          // or while deleting. Other rows fade out so
+                          // accidental clicks on a sibling don't pile up.
+                          className={`mr-1 transition-opacity ${
+                            isArmed || isDeleting
+                              ? "opacity-100"
+                              : "opacity-0 group-hover:opacity-100"
+                          }`}
+                          onClick={() => void handleDeleteClick(page.path)}
+                          name={page.title}
+                        />
                       </div>
                     )
                   })}
@@ -362,7 +293,6 @@ function RawSourcesSection() {
 function parsePageInfo(path: string, fileName: string, content: string): WikiPageInfo {
   let type = "other"
   let title = fileName.replace(".md", "").replace(/-/g, " ")
-  let layer = ""
   const tags: string[] = []
   let origin: string | undefined
 
@@ -375,9 +305,6 @@ function parsePageInfo(path: string, fileName: string, content: string): WikiPag
 
     const titleMatch = fm.match(/^title:\s*["']?(.+?)["']?\s*$/m)
     if (titleMatch) title = titleMatch[1].trim()
-
-    const layerMatch = fm.match(/^layer:\s*(.+)$/m)
-    if (layerMatch) layer = layerMatch[1].trim()
 
     const tagsMatch = fm.match(/^tags:\s*\[(.+?)\]/m)
     if (tagsMatch) {
@@ -405,20 +332,17 @@ function parsePageInfo(path: string, fileName: string, content: string): WikiPag
     else if (fileName === "overview.md") type = "overview"
   }
 
-  // Fallback: infer layer from path (e.g., wiki/03-方法论/concepts/xxx.md)
-  if (!layer) {
-    const layerDirMatch = path.match(/wiki\/(0[1-7]-[^/]+)\//)
-    if (layerDirMatch) layer = layerDirMatch[1]
-  }
-
-  // Final fallback
-  if (!layer) layer = "未分类"
-
-  return { path, title, type, layer, tags, origin }
+  return { path, title, type, tags, origin }
 }
 
 /**
- * Two-stage delete affordance for a single page row.
+ * Two-stage delete affordance for a single page row. Default state =
+ * subtle ghost trash icon. Armed state = solid red Confirm pill so a
+ * second click can't be accidental. Same visual contract as the
+ * sources-view DeleteButton — kept inline here rather than shared
+ * because the parent owns the armed/deleting/visibility state and
+ * extracting would mean lifting four props to a shared module for one
+ * extra caller.
  */
 function DeleteButton({
   armed,
